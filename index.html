@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QR to Sheet</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="QR to Sheet">
+<meta name="theme-color" content="#1a73e8">
+<style>
+  :root { --blue:#1a73e8; --green:#188038; --red:#d93025; --bg:#f4f6fa; --card:#fff; --text:#202124; --muted:#5f6368; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Arial,sans-serif;
+         background:var(--bg); color:var(--text);
+         padding: env(safe-area-inset-top) 0 env(safe-area-inset-bottom); }
+  header { background:var(--blue); color:#fff; padding:14px 16px; font-size:18px; font-weight:600; }
+  main { max-width:560px; margin:0 auto; padding:12px; }
+  .card { background:var(--card); border-radius:12px; padding:14px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.12); }
+  h2 { font-size:15px; margin:0 0 10px; }
+  input[type=url] { width:100%; padding:11px; border:1px solid #c4c7c5; border-radius:8px; font-size:15px; }
+  .row { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  button { flex:1; padding:12px; border:0; border-radius:8px; font-size:15px; font-weight:600;
+           background:var(--blue); color:#fff; min-width:120px; }
+  button.secondary { background:#e8eaed; color:var(--text); }
+  button.danger { background:#fce8e6; color:var(--red); }
+  button:disabled { opacity:.5; }
+  #camBox { position:relative; background:#000; border-radius:10px; overflow:hidden; display:none; aspect-ratio:4/3; }
+  #camBox video { width:100%; height:100%; object-fit:cover; }
+  #frame { position:absolute; inset:18% 18%; border:3px solid rgba(255,255,255,.9); border-radius:14px;
+           box-shadow:0 0 0 999px rgba(0,0,0,.35); pointer-events:none; }
+  label.chk { display:flex; align-items:center; gap:8px; margin-top:10px; font-size:14px; }
+  #status { margin-top:10px; font-size:14px; min-height:20px; }
+  #status.ok { color:var(--green); } #status.err { color:var(--red); }
+  ul { list-style:none; margin:0; padding:0; }
+  li { padding:9px 0; border-bottom:1px solid #eee; font-size:14px; display:flex; gap:8px; justify-content:space-between; }
+  li:last-child { border-bottom:0; }
+  .code { word-break:break-all; font-weight:600; }
+  .time { color:var(--muted); font-size:12px; }
+  .badge { white-space:nowrap; font-size:12px; font-weight:600; }
+  .badge.sent { color:var(--green); } .badge.pending { color:#b06000; }
+  .hint { font-size:12px; color:var(--muted); margin-top:6px; }
+  canvas { display:none; }
+</style>
+</head>
+<body>
+<header>QR → Google Sheet</header>
+<main>
+
+  <section class="card">
+    <h2>1. Kết nối Google Sheet</h2>
+    <input type="url" id="urlInput" placeholder="Dán URL Apps Script (kết thúc bằng /exec)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <div class="row">
+      <button id="btnSave">Lưu URL</button>
+      <button id="btnTest" class="secondary">Gửi thử 1 dòng</button>
+    </div>
+    <div class="hint">URL chỉ được lưu trong trình duyệt của máy này.</div>
+  </section>
+
+  <section class="card">
+    <h2>2. Quét mã QR</h2>
+    <div id="camBox"><video id="video" playsinline muted></video><div id="frame"></div></div>
+    <canvas id="canvas"></canvas>
+    <div class="row">
+      <button id="btnStart">Bắt đầu quét</button>
+      <button id="btnStop" class="secondary" style="display:none">Dừng quét</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="chkContinuous"> Quét liên tục (bỏ qua mã trùng trong 5 giây)</label>
+    <div id="status"></div>
+  </section>
+
+  <section class="card">
+    <h2>Lịch sử quét <span id="pendingInfo" class="time"></span></h2>
+    <ul id="list"></ul>
+    <div class="row">
+      <button id="btnFlush" class="secondary">Gửi lại mã đang chờ</button>
+      <button id="btnClear" class="danger">Xóa lịch sử</button>
+    </div>
+    <div class="hint">Mã quét khi mất mạng sẽ được giữ lại và tự gửi khi có mạng trở lại.</div>
+  </section>
+
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+(function () {
+  var $ = function (id) { return document.getElementById(id); };
+  var KEY_URL = 'qr_sheet_url', KEY_ITEMS = 'qr_sheet_items';
+  var MAX_ITEMS = 100;
+
+  var video = $('video'), canvas = $('canvas');
+  var ctx = canvas.getContext('2d', { willReadFrequently: true });
+  var stream = null, scanning = false, rafId = 0, flushing = false;
+  var lastCode = '', lastSeen = 0, audioCtx = null;
+
+  /* ---------- lưu trữ ---------- */
+  function load(key, def) {
+    try { var v = localStorage.getItem(key); return v ? JSON.parse(v) : def; } catch (e) { return def; }
+  }
+  function save(key, val) {
+    try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {}
+  }
+  var items = load(KEY_ITEMS, []);
+  function getUrl() { return (load(KEY_URL, '') || '').trim(); }
+
+  /* ---------- tiện ích ---------- */
+  function pad(n) { return (n < 10 ? '0' : '') + n; }
+  function nowString() {
+    var d = new Date();
+    return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' +
+           pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  }
+  function setStatus(msg, cls) {
+    var s = $('status'); s.textContent = msg || ''; s.className = cls || '';
+  }
+  function beep() {
+    try {
+      if (!audioCtx) return;
+      var o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.frequency.value = 880; g.gain.value = 0.15;
+      o.connect(g); g.connect(audioCtx.destination);
+      o.start(); o.stop(audioCtx.currentTime + 0.12);
+    } catch (e) {}
+    try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) {}
+  }
+  function validUrl(u) { return /^https:\/\/script\.google\.com\/.+/.test(u); }
+
+  /* ---------- hiển thị lịch sử ---------- */
+  function render() {
+    var ul = $('list'); ul.innerHTML = '';
+    if (!items.length) {
+      var li = document.createElement('li'); li.textContent = 'Chưa có mã nào.'; ul.appendChild(li);
+    }
+    items.slice().reverse().forEach(function (it) {
+      var li = document.createElement('li');
+      var left = document.createElement('div');
+      var c = document.createElement('div'); c.className = 'code'; c.textContent = it.code;
+      var t = document.createElement('div'); t.className = 'time'; t.textContent = it.time;
+      left.appendChild(c); left.appendChild(t);
+      var b = document.createElement('div');
+      b.className = 'badge ' + (it.status === 'sent' ? 'sent' : 'pending');
+      b.textContent = it.status === 'sent' ? '✔ Đã gửi' : '⏳ Chờ gửi';
+      li.appendChild(left); li.appendChild(b); ul.appendChild(li);
+    });
+    var pending = items.filter(function (i) { return i.status !== 'sent'; }).length;
+    $('pendingInfo').textContent = pending ? '(' + pending + ' mã chờ gửi)' : '';
+    save(KEY_ITEMS, items);
+  }
+
+  /* ---------- gửi lên Google Sheet ---------- */
+  function sendOne(it) {
+    var body = new URLSearchParams();
+    body.append('code', it.code);
+    body.append('time', it.time);
+    // no-cors: trình duyệt không đọc được phản hồi, nhưng dữ liệu vẫn được Apps Script nhận
+    return fetch(getUrl(), { method: 'POST', mode: 'no-cors', body: body });
+  }
+
+  async function flush() {
+    if (flushing) return;
+    var url = getUrl();
+    if (!validUrl(url)) { setStatus('Chưa có URL Apps Script hợp lệ.', 'err'); return; }
+    flushing = true;
+    var sent = 0, failed = false;
+    for (var i = 0; i < items.length; i++) {
+      if (items[i].status === 'sent') continue;
+      try {
+        await sendOne(items[i]);
+        items[i].status = 'sent'; sent++;
+        render();
+      } catch (e) { failed = true; break; }
+    }
+    flushing = false;
+    if (failed) setStatus('Không gửi được (mất mạng?). Mã được giữ lại, sẽ tự gửi lại khi có mạng.', 'err');
+    else if (sent) setStatus('✔ Đã gửi ' + sent + ' mã. Hãy mở Google Sheet để kiểm tra.', 'ok');
+  }
+
+  function addCode(code) {
+    items.push({ code: code, time: nowString(), status: 'pending' });
+    if (items.length > MAX_ITEMS) {
+      // chỉ cắt các mục đã gửi cũ nhất, giữ mã chờ gửi
+      for (var i = 0; i < items.length && items.length > MAX_ITEMS; i++) {
+        if (items[i].status === 'sent') { items.splice(i, 1); i--; }
+      }
+    }
+    render();
+    flush();
+  }
+
+  /* ---------- camera + quét ---------- */
+  async function startScan() {
+    if (!validUrl(getUrl())) { setStatus('Hãy dán và lưu URL Apps Script ở bước 1 trước.', 'err'); return; }
+    if (!window.jsQR) { setStatus('Chưa tải được thư viện quét mã. Kiểm tra mạng rồi tải lại trang.', 'err'); return; }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      setStatus('Trình duyệt không hỗ trợ camera (cần mở bằng địa chỉ https://).', 'err'); return;
+    }
+    try {
+      var AC = window.AudioContext || window.webkitAudioContext;
+      if (AC && !audioCtx) audioCtx = new AC();
+      if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) {}
+
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+    } catch (e) {
+      setStatus(e && e.name === 'NotAllowedError'
+        ? 'Bạn chưa cấp quyền camera. Hãy cho phép camera trong cài đặt trình duyệt.'
+        : 'Không mở được camera: ' + (e && e.message ? e.message : e), 'err');
+      return;
+    }
+    video.srcObject = stream;
+    video.setAttribute('playsinline', 'true');
+    await video.play();
+    scanning = true;
+    $('camBox').style.display = 'block';
+    $('btnStart').style.display = 'none';
+    $('btnStop').style.display = '';
+    setStatus('Đưa mã QR vào khung…');
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function stopScan() {
+    scanning = false;
+    cancelAnimationFrame(rafId);
+    if (stream) { stream.getTracks().forEach(function (t) { t.stop(); }); stream = null; }
+    video.srcObject = null;
+    $('camBox').style.display = 'none';
+    $('btnStart').style.display = '';
+    $('btnStop').style.display = 'none';
+  }
+
+  function tick() {
+    if (!scanning) return;
+    if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth) {
+      var scale = Math.min(1, 640 / video.videoWidth);
+      var w = Math.round(video.videoWidth * scale), h = Math.round(video.videoHeight * scale);
+      canvas.width = w; canvas.height = h;
+      ctx.drawImage(video, 0, 0, w, h);
+      var img = ctx.getImageData(0, 0, w, h);
+      var r = window.jsQR(img.data, w, h, { inversionAttempts: 'dontInvert' });
+      if (r && r.data) onCode(r.data);
+    }
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function onCode(code) {
+    var now = Date.now();
+    var duplicate = (code === lastCode && now - lastSeen < 5000);
+    lastCode = code; lastSeen = now;      // giữ mã trước camera thì không bị quét lại
+    if (duplicate) return;
+    beep();
+    addCode(code);
+    setStatus('Đã quét: ' + code, 'ok');
+    if (!$('chkContinuous').checked) stopScan();
+  }
+
+  /* ---------- sự kiện giao diện ---------- */
+  $('urlInput').value = getUrl();
+
+  $('btnSave').onclick = function () {
+    var u = $('urlInput').value.trim();
+    if (!validUrl(u)) { setStatus('URL không hợp lệ. Phải bắt đầu bằng https://script.google.com/…', 'err'); return; }
+    save(KEY_URL, u);
+    setStatus('✔ Đã lưu URL.', 'ok');
+  };
+  $('btnTest').onclick = function () {
+    var u = $('urlInput').value.trim();
+    if (!validUrl(u)) { setStatus('Hãy dán URL Apps Script hợp lệ trước.', 'err'); return; }
+    save(KEY_URL, u);
+    addCode('TEST ' + nowString());
+  };
+  $('btnStart').onclick = startScan;
+  $('btnStop').onclick = function () { stopScan(); setStatus(''); };
+  $('btnFlush').onclick = flush;
+  $('btnClear').onclick = function () {
+    if (!items.length) return;
+    if (confirm('Xóa toàn bộ lịch sử trên máy này? (Dữ liệu đã nằm trong Google Sheet vẫn được giữ.)')) {
+      items = []; render();
+    }
+  };
+  window.addEventListener('online', flush);
+  document.addEventListener('visibilitychange', function () { if (document.hidden && scanning) stopScan(); });
+
+  render();
+  if (items.some(function (i) { return i.status !== 'sent'; }) && validUrl(getUrl())) flush();
+})();
+</script>
+</body>
+</html>
