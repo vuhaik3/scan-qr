@@ -31,9 +31,14 @@
 4. Bấm **Bắt đầu quét**, cấp quyền camera và đưa QR vào khung.
 5. Bật **Quét liên tục** nếu muốn quét nhiều mã. Mã chờ gửi được lưu trên thiết bị và tự thử lại khi có mạng.
 
-Ứng dụng ghi vào sheet tên **Scans**, gồm các cột thời gian, nội dung QR và mã bản ghi chống ghi trùng.
+Ứng dụng tự chọn tab theo tháng/năm của **thời điểm quét**, đặt tên dạng `MM-YYYY` (ví dụ `11-2026`). Nếu tab chưa tồn tại, Apps Script tự tạo tab và thêm hàng tiêu đề. Mỗi tab có các cột thời gian, nội dung QR và mã bản ghi chống ghi trùng. Mã quét khi mất mạng vẫn được lưu vào đúng tháng lúc quét, kể cả khi đến tháng sau mới gửi lại.
 
-## 4. Ngoại tuyến và giới hạn
+## 4. Lưu dữ liệu theo tháng, ngoại tuyến và giới hạn
+
+- Mỗi tháng có một tab riêng theo định dạng `MM-YYYY`: ví dụ tháng 11 năm 2026 là `11-2026`, tháng 1 năm 2027 là `01-2027`.
+- Tab được xác định theo ngày giờ quét lưu trên thiết bị, không phải ngày giờ đồng bộ. Vì vậy mã quét cuối tháng nhưng gửi lại đầu tháng sau vẫn vào tab của tháng đã quét.
+- Khi tab của tháng chưa tồn tại, hệ thống tự tạo tab và hàng tiêu đề khi ghi bản ghi đầu tiên.
+
 
 - Service Worker cache giao diện và thư viện jsQR sau lần tải thành công đầu tiên. Camera vẫn cần quyền truy cập và HTTPS.
 - Các bản ghi chờ gửi nằm trong localStorage của trình duyệt/ứng dụng trên từng thiết bị; không xóa dữ liệu trình duyệt khi còn bản ghi chờ.

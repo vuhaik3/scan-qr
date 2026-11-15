@@ -7,7 +7,6 @@
  * The token is a shared bearer secret, not a substitute for per-user identity.
  */
 var ACCESS_TOKEN = 'CHANGE_THIS_TO_A_RANDOM_SECRET_AT_LEAST_32_CHARS';
-var SHEET_NAME = 'Scans';
 var MAX_CODE_LENGTH = 2048;
 
 function doGet(e) {
@@ -43,7 +42,11 @@ function appendScan_(p) {
   var time = String(p.time || '');
   if (!/^[A-Za-z0-9_-]{8,100}$/.test(id)) return { ok: false, error: 'Mã bản ghi không hợp lệ.' };
   if (!code || code.length > MAX_CODE_LENGTH) return { ok: false, error: 'Nội dung QR rỗng hoặc quá dài.' };
-  if (!time || time.length > 40) return { ok: false, error: 'Thời gian không hợp lệ.' };
+  var scanDate = parseScanTime_(time);
+  if (!scanDate) return { ok: false, error: 'Thời gian không hợp lệ. Định dạng cần là dd/MM/yyyy HH:mm:ss.' };
+
+  // Tên tab được xác định từ thời điểm quét trên thiết bị, không phải thời điểm gửi.
+  var monthTab = pad2_(scanDate.month) + '-' + scanDate.year;
 
   var lock = LockService.getScriptLock();
   try {
@@ -54,14 +57,15 @@ function appendScan_(p) {
 
     var ss = SpreadsheetApp.getActiveSpreadsheet();
     if (!ss) throw new Error('Không tìm thấy bảng tính. Hãy dùng Apps Script gắn với Google Sheet.');
-    var sheet = ss.getSheetByName(SHEET_NAME) || ss.insertSheet(SHEET_NAME);
+    var sheet = ss.getSheetByName(monthTab);
+    if (!sheet) sheet = ss.insertSheet(monthTab);
     if (sheet.getLastRow() === 0) {
       sheet.appendRow(['Ngày giờ quét', 'Nội dung QR', 'Mã bản ghi']);
       sheet.setFrozenRows(1);
     }
     sheet.appendRow([time, code, id]);
     cache.put(cacheKey, '1', 21600);
-    return { ok: true, id: id };
+    return { ok: true, id: id, sheet: monthTab };
   } catch (err) {
     return { ok: false, error: String(err && err.message ? err.message : err) };
   } finally {
@@ -74,4 +78,29 @@ function constantTimeEquals_(a, b) {
   var diff = 0;
   for (var i = 0; i < a.length; i++) diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
   return diff === 0;
+}
+
+/**
+ * Parse the client timestamp (dd/MM/yyyy HH:mm:ss) without relying on
+ * server locale/time zone. Returns numeric date parts for tab naming.
+ */
+function parseScanTime_(value) {
+  var match = /^(\\d{2})\\/(\\d{2})\\/(\\d{4}) (\\d{2}):(\\d{2}):(\\d{2})$/.exec(value);
+  if (!match) return null;
+  var day = Number(match[1]);
+  var month = Number(match[2]);
+  var year = Number(match[3]);
+  var hour = Number(match[4]);
+  var minute = Number(match[5]);
+  var second = Number(match[6]);
+  var date = new Date(year, month - 1, day, hour, minute, second);
+  if (month < 1 || month > 12 || day < 1 || hour > 23 || minute > 59 || second > 59 ||
+      date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) {
+    return null;
+  }
+  return { day: day, month: month, year: year, hour: hour, minute: minute, second: second };
+}
+
+function pad2_(value) {
+  return value < 10 ? '0' + value : String(value);
 }

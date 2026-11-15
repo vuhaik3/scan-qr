@@ -201,19 +201,15 @@
   }
 
   function addCode(code) {
-    // Dọn các mục đã gửi cũ trước; không bao giờ âm thầm xóa bản ghi đang chờ.
-    while (items.length >= MAX_ITEMS) {
-      var sentIndex = items.findIndex(function (item) { return item.status === 'sent'; });
-      if (sentIndex === -1) {
-        setStatus('Hàng đợi đã đủ ' + MAX_ITEMS + ' mã chưa xác nhận. Hãy kết nối mạng và gửi lại trước khi quét tiếp.', 'err');
-        return false;
-      }
-      items.splice(sentIndex, 1);
-    }
     items.push({ id: makeId(), code: code, time: nowString(), status: 'pending' });
+    if (items.length > MAX_ITEMS) {
+      // chỉ cắt các mục đã gửi cũ nhất, giữ mã chờ gửi
+      for (var i = 0; i < items.length && items.length > MAX_ITEMS; i++) {
+        if (items[i].status === 'sent') { items.splice(i, 1); i--; }
+      }
+    }
     render();
     flush();
-    return true;
   }
 
   /* ---------- camera + quét ---------- */
@@ -280,8 +276,8 @@
     var duplicate = (code === lastCode && now - lastSeen < 5000);
     lastCode = code; lastSeen = now;      // giữ mã trước camera thì không bị quét lại
     if (duplicate) return;
-    if (!addCode(code)) return;
     beep();
+    addCode(code);
     setStatus('Đã quét: ' + code, 'ok');
     if (!$('chkContinuous').checked) stopScan();
   }
