@@ -1,85 +1,51 @@
-# QR to Sheet (web app): hướng dẫn cài đặt
+# QR to Sheet - hướng dẫn cài đặt và vận hành
 
-Web app chạy trên Safari (iPhone) và Chrome (Android/máy tính), quét QR bằng camera và
-ghi mã + ngày giờ vào Google Sheet. Hoàn toàn miễn phí.
+Ứng dụng quét mã QR bằng camera điện thoại và ghi nội dung + thời gian vào Google Sheets. Front-end được host trên GitHub Pages; Google Apps Script xử lý việc ghi dữ liệu.
 
-Cần 3 phần: **(A)** Google Sheet, **(B)** đưa web app lên mạng, **(C)** cài lên điện thoại.
+## 1. Thiết lập Google Sheets và Apps Script
 
----------------------------------------------------------------------
+1. Tạo Google Sheet mới bằng tài khoản Google của bạn.
+2. Chọn **Tiện ích mở rộng → Apps Script** để tạo dự án gắn với bảng tính.
+3. Mở file `apps-script/Code.gs` trong repository, sao chép toàn bộ nội dung vào trình soạn thảo Apps Script và lưu.
+4. Trong `Code.gs`, thay giá trị `ACCESS_TOKEN` bằng một chuỗi ngẫu nhiên dài ít nhất 32 ký tự. Ví dụ có thể tạo bằng trình quản lý mật khẩu. Không dùng ví dụ công khai làm mã thật.
+5. Chọn **Triển khai → Triển khai mới → Ứng dụng web**:
+   - Thực thi dưới tên: **Tôi**.
+   - Ai có quyền truy cập: **Bất kỳ ai**.
+6. Triển khai, cấp quyền cho Apps Script và sao chép URL ứng dụng web kết thúc bằng `/exec`.
+7. Mỗi lần sửa Apps Script, vào **Triển khai → Quản lý bản triển khai → Chỉnh sửa → Phiên bản mới → Triển khai**.
 
-## A. Google Sheet + Apps Script (~3 phút)
+> Endpoint cần truy cập công khai để JSONP từ GitHub Pages gọi được. Mã truy cập là shared secret dạng bearer: người có mã có thể ghi dữ liệu vào Sheet. Không đưa mã vào repository, không gửi cho người không tin cậy và hãy thay mã nếu bị lộ. Vì đây là mô hình client-side, mã không thể được xem là bí mật tuyệt đối trước người dùng thiết bị.
 
-1. Dùng **Gmail cá nhân**, tạo Google Sheet mới.
-2. Menu **Tiện ích mở rộng → Apps Script**.
-   *(Nếu gặp lỗi "Rất tiếc, không thể mở tệp": mở cửa sổ ẩn danh, chỉ đăng nhập 1 tài khoản Google
-   rồi thử lại. Hoặc dùng https://script.google.com → Dự án mới, và điền ID Google Sheet vào dòng
-   `var SHEET_ID = '';` trong code.)*
-3. Xóa code mẫu, dán toàn bộ nội dung file `apps-script/Code.gs`, bấm lưu.
-4. **Triển khai → Triển khai mới →** bánh răng **→ Ứng dụng web**:
-   - Thực thi dưới tên: **Tôi**
-   - Ai có quyền truy cập: **Bất kỳ ai**
-5. Bấm **Triển khai**, cấp quyền (Nâng cao → Đi tới dự án → Cho phép).
-6. **Copy "URL ứng dụng web"** (đuôi `/exec`). Cần dùng ở bước C.
+## 2. Đưa giao diện lên GitHub Pages
 
-> Đã triển khai bản cũ trước đó? Vào **Triển khai → Quản lý bản triển khai → biểu tượng bút chì →
-> Phiên bản: Phiên bản mới → Triển khai**. URL giữ nguyên.
+1. Mở repository và chọn **Settings → Pages**.
+2. Source: **Deploy from a branch**.
+3. Branch: `main`, thư mục `/(root)`, bấm **Save**.
+4. Chờ GitHub Pages xuất bản trang. Địa chỉ thường có dạng `https://TEN-GITHUB.github.io/scan-qr/`.
 
----------------------------------------------------------------------
+## 3. Kết nối và sử dụng
 
-## B. Đưa web app lên GitHub Pages (miễn phí)
+1. Mở trang bằng Safari (iPhone) hoặc Chrome (Android).
+2. Nhập URL Apps Script và đúng mã truy cập đã cấu hình trong `Code.gs`, bấm **Lưu URL**.
+3. Bấm **Gửi thử 1 dòng**. Chỉ khi Apps Script xác nhận thành công, lịch sử mới chuyển sang **Đã gửi**.
+4. Bấm **Bắt đầu quét**, cấp quyền camera và đưa QR vào khung.
+5. Bật **Quét liên tục** nếu muốn quét nhiều mã. Mã chờ gửi được lưu trên thiết bị và tự thử lại khi có mạng.
 
-1. Đăng ký tài khoản tại https://github.com (nếu chưa có).
-2. Bấm dấu **+ → New repository**:
-   - Repository name: `qr-sheet` (hoặc tên bất kỳ, viết liền không dấu)
-   - Chọn **Public** (GitHub Pages miễn phí cần repo công khai; repo không chứa dữ liệu nhạy cảm
-     vì URL Apps Script chỉ lưu trên điện thoại của bạn)
-   - Bấm **Create repository**.
-3. Giải nén file zip. Ở trang repository, bấm **uploading an existing file** (hoặc
-   **Add file → Upload files**), kéo thả **4 file** này vào:
-   `index.html`, `manifest.webmanifest`, `icon-192.png`, `icon-512.png`
-   rồi bấm **Commit changes**.
-   *(4 file phải nằm ngay ngoài cùng repository, không nằm trong thư mục con.)*
-4. Vào **Settings → Pages** (cột trái):
-   - Source: **Deploy from a branch**
-   - Branch: **main**, thư mục **/ (root)** → bấm **Save**.
-5. Chờ 1–2 phút, tải lại trang Pages sẽ hiện dòng:
-   **"Your site is live at https://TÊN-BẠN.github.io/qr-sheet/"**. Đây là địa chỉ web app của bạn.
+Ứng dụng ghi vào sheet tên **Scans**, gồm các cột thời gian, nội dung QR và mã bản ghi chống ghi trùng.
 
----------------------------------------------------------------------
+## 4. Ngoại tuyến và giới hạn
 
-## C. Cài lên điện thoại và dùng
+- Service Worker cache giao diện và thư viện jsQR sau lần tải thành công đầu tiên. Camera vẫn cần quyền truy cập và HTTPS.
+- Các bản ghi chờ gửi nằm trong localStorage của trình duyệt/ứng dụng trên từng thiết bị; không xóa dữ liệu trình duyệt khi còn bản ghi chờ.
+- Google Apps Script và Google Sheets có hạn mức sử dụng của Google. Với lượng quét lớn hoặc nhiều nhân viên đồng thời, nên chuyển sang backend có xác thực người dùng và hàng đợi bền vững.
 
-### iPhone (dùng Safari)
-1. Mở địa chỉ web app ở trên bằng **Safari**.
-2. Bấm nút **Chia sẻ** (hình vuông có mũi tên lên) → kéo xuống **Thêm vào Màn hình chính** → **Thêm**.
-3. Mở app **QR to Sheet** từ màn hình chính.
-
-### Android (dùng Chrome)
-1. Mở địa chỉ web app bằng **Chrome**.
-2. Bấm **⋮ → Thêm vào màn hình chính** (hoặc **Cài đặt ứng dụng**).
-
-### Dùng lần đầu
-1. Dán **URL Apps Script** (bước A.6) vào ô ở mục 1, bấm **Lưu URL**.
-   *Lưu ý iPhone: app trên màn hình chính có bộ nhớ riêng, tách biệt với Safari, nên phải dán URL
-   lại trong app này một lần.*
-2. Bấm **Gửi thử 1 dòng** → mở Google Sheet, thấy dòng "TEST …" là kết nối thành công.
-3. Bấm **Bắt đầu quét**, cho phép camera, đưa mã QR vào khung.
-4. Điện thoại kêu bíp, mã hiện trong **Lịch sử quét** với trạng thái **✔ Đã gửi**, và xuất hiện
-   ở Google Sheet (cột A = ngày giờ, cột B = nội dung mã).
-5. Tick **Quét liên tục** nếu muốn quét nhiều mã liên tiếp.
-
-Mất mạng thì mã ở trạng thái **⏳ Chờ gửi** và tự gửi khi có mạng lại (hoặc bấm
-**Gửi lại mã đang chờ**).
-
----------------------------------------------------------------------
-
-## Xử lý sự cố
+## 5. Xử lý sự cố
 
 | Hiện tượng | Cách xử lý |
 |---|---|
-| Không thấy camera / báo chưa cấp quyền | iPhone: Cài đặt → Safari (hoặc ứng dụng) → Camera → Cho phép. Android: biểu tượng ổ khóa cạnh địa chỉ → Quyền → Camera. |
-| Báo "Chưa tải được thư viện quét mã" | Cần có internet ở lần mở đầu tiên. Bật mạng, tải lại trang. |
-| Báo "Đã gửi" nhưng Sheet không có dòng mới | Quyền truy cập Apps Script chưa là **Bất kỳ ai**, hoặc sau khi sửa code chưa tạo **phiên bản mới**. Kiểm tra lại bước A.4–A.5. |
-| Gửi thử không ra gì, URL đúng | Dán URL trong trình duyệt: nếu hiện "QR to Sheet đang hoạt động" là script ổn, lỗi nằm ở quyền/triển khai. |
-| Quét chậm hoặc không nhận | Giữ máy cách mã 15–30 cm, đủ sáng, mã nằm gọn trong khung. |
-| Trang không cập nhật sau khi sửa file | Xóa app khỏi màn hình chính, mở lại bằng trình duyệt rồi thêm lại. |
+| Báo mã truy cập không đúng | Kiểm tra token trong app trùng chính xác với `ACCESS_TOKEN` trong bản triển khai Apps Script hiện hành. |
+| Không ghi được Sheet | Kiểm tra quyền triển khai là **Bất kỳ ai**, đã cấp quyền và dùng URL `/exec`. |
+| Mã vẫn ở trạng thái chờ | Kiểm tra mạng, URL và token; bấm **Gửi lại mã đang chờ**. |
+| Không mở được camera | Dùng HTTPS, cấp quyền camera cho Safari/Chrome và đóng ứng dụng khác đang dùng camera. |
+| Mở app khi không có mạng không quét được | Mở app một lần khi có mạng để cache trang và thư viện jsQR. |
+| Đã đổi Code.gs nhưng app vẫn báo lỗi | Tạo phiên bản mới trong phần Quản lý bản triển khai của Apps Script. |

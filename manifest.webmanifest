@@ -1,8 +1,8 @@
 {
   "name": "QR to Sheet",
   "short_name": "QR to Sheet",
-  "description": "Quét mã QR và lưu vào Google Sheet",
-  "start_url": "./index.html",
+  "description": "Quét mã QR và lưu có xác nhận vào Google Sheet",
+  "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",

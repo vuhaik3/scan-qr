@@ -52,11 +52,12 @@
   <section class="card">
     <h2>1. Kết nối Google Sheet</h2>
     <input type="url" id="urlInput" placeholder="Dán URL Apps Script (kết thúc bằng /exec)" autocomplete="off" autocapitalize="off" spellcheck="false">
+    <input type="password" id="tokenInput" placeholder="Mã truy cập đã cấu hình trong Code.gs" autocomplete="off" style="width:100%;padding:11px;margin-top:8px;border:1px solid #c4c7c5;border-radius:8px;font-size:15px">
     <div class="row">
       <button id="btnSave">Lưu URL</button>
       <button id="btnTest" class="secondary">Gửi thử 1 dòng</button>
     </div>
-    <div class="hint">URL chỉ được lưu trong trình duyệt của máy này.</div>
+    <div class="hint">URL và mã truy cập được lưu riêng trên thiết bị này. Không chia sẻ mã truy cập.</div>
   </section>
 
   <section class="card">
@@ -87,7 +88,7 @@
 <script>
 (function () {
   var $ = function (id) { return document.getElementById(id); };
-  var KEY_URL = 'qr_sheet_url', KEY_ITEMS = 'qr_sheet_items';
+  var KEY_URL = 'qr_sheet_url', KEY_TOKEN = 'qr_sheet_token', KEY_ITEMS = 'qr_sheet_items';
   var MAX_ITEMS = 100;
 
   var video = $('video'), canvas = $('canvas');
@@ -104,6 +105,8 @@
   }
   var items = load(KEY_ITEMS, []);
   function getUrl() { return (load(KEY_URL, '') || '').trim(); }
+  function getToken() { return (load(KEY_TOKEN, '') || '').trim(); }
+  function makeId() { return (window.crypto && crypto.randomUUID) ? crypto.randomUUID() : (Date.now().toString(36) + Math.random().toString(36).slice(2)); }
 
   /* ---------- tiện ích ---------- */
   function pad(n) { return (n < 10 ? '0' : '') + n; }
@@ -125,7 +128,7 @@
     } catch (e) {}
     try { if (navigator.vibrate) navigator.vibrate(80); } catch (e) {}
   }
-  function validUrl(u) { return /^https:\/\/script\.google\.com\/.+/.test(u); }
+  function validUrl(u) { return /^https:\/\/script\.google\.com\/macros\/s\/[A-Za-z0-9_-]+\/exec\/?$/.test(u); }
 
   /* ---------- hiển thị lịch sử ---------- */
   function render() {
@@ -151,11 +154,31 @@
 
   /* ---------- gửi lên Google Sheet ---------- */
   function sendOne(it) {
-    var body = new URLSearchParams();
-    body.append('code', it.code);
-    body.append('time', it.time);
-    // no-cors: trình duyệt không đọc được phản hồi, nhưng dữ liệu vẫn được Apps Script nhận
-    return fetch(getUrl(), { method: 'POST', mode: 'no-cors', body: body });
+    return new Promise(function (resolve, reject) {
+      if (!getToken()) { reject(new Error('Thiếu mã truy cập.')); return; }
+      var callback = 'qrSheetCallback_' + makeId().replace(/-/g, '');
+      var script = document.createElement('script');
+      var settled = false;
+      var timer = setTimeout(function () { finish(new Error('Hết thời gian chờ máy chủ.')); }, 15000);
+      function finish(err, data) {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        delete window[callback];
+        if (script.parentNode) script.parentNode.removeChild(script);
+        if (err) reject(err);
+        else if (data && data.ok === true) resolve(data);
+        else reject(new Error((data && data.error) || 'Máy chủ từ chối dữ liệu.'));
+      }
+      window[callback] = function (data) { finish(null, data); };
+      script.onerror = function () { finish(new Error('Không kết nối được Apps Script.')); };
+      var params = new URLSearchParams({
+        action: 'append', callback: callback, token: getToken(),
+        id: it.id, code: it.code, time: it.time
+      });
+      script.src = getUrl() + '?' + params.toString();
+      document.head.appendChild(script);
+    });
   }
 
   async function flush() {
@@ -168,17 +191,17 @@
       if (items[i].status === 'sent') continue;
       try {
         await sendOne(items[i]);
-        items[i].status = 'sent'; sent++;
+        items[i].status = 'sent'; items[i].sentAt = nowString(); sent++;
         render();
       } catch (e) { failed = true; break; }
     }
     flushing = false;
-    if (failed) setStatus('Không gửi được (mất mạng?). Mã được giữ lại, sẽ tự gửi lại khi có mạng.', 'err');
+    if (failed) setStatus('Chưa xác nhận được từ Google Sheets. Mã vẫn được giữ để gửi lại: ' + (items.find(function (x) { return x.status !== 'sent'; }) || {}).code, 'err');
     else if (sent) setStatus('✔ Đã gửi ' + sent + ' mã. Hãy mở Google Sheet để kiểm tra.', 'ok');
   }
 
   function addCode(code) {
-    items.push({ code: code, time: nowString(), status: 'pending' });
+    items.push({ id: makeId(), code: code, time: nowString(), status: 'pending' });
     if (items.length > MAX_ITEMS) {
       // chỉ cắt các mục đã gửi cũ nhất, giữ mã chờ gửi
       for (var i = 0; i < items.length && items.length > MAX_ITEMS; i++) {
@@ -261,17 +284,19 @@
 
   /* ---------- sự kiện giao diện ---------- */
   $('urlInput').value = getUrl();
+  $('tokenInput').value = getToken();
 
   $('btnSave').onclick = function () {
-    var u = $('urlInput').value.trim();
-    if (!validUrl(u)) { setStatus('URL không hợp lệ. Phải bắt đầu bằng https://script.google.com/…', 'err'); return; }
-    save(KEY_URL, u);
-    setStatus('✔ Đã lưu URL.', 'ok');
+    var u = $('urlInput').value.trim(), token = $('tokenInput').value.trim();
+    if (!validUrl(u)) { setStatus('URL không hợp lệ. Hãy dùng URL Web App kết thúc bằng /exec.', 'err'); return; }
+    if (token.length < 20) { setStatus('Mã truy cập phải có ít nhất 20 ký tự.', 'err'); return; }
+    save(KEY_URL, u); save(KEY_TOKEN, token);
+    setStatus('✔ Đã lưu URL và mã truy cập.', 'ok');
   };
   $('btnTest').onclick = function () {
-    var u = $('urlInput').value.trim();
-    if (!validUrl(u)) { setStatus('Hãy dán URL Apps Script hợp lệ trước.', 'err'); return; }
-    save(KEY_URL, u);
+    var u = $('urlInput').value.trim(), token = $('tokenInput').value.trim();
+    if (!validUrl(u) || token.length < 20) { setStatus('Hãy nhập URL và mã truy cập hợp lệ trước.', 'err'); return; }
+    save(KEY_URL, u); save(KEY_TOKEN, token);
     addCode('TEST ' + nowString());
   };
   $('btnStart').onclick = startScan;
@@ -287,7 +312,8 @@
   document.addEventListener('visibilitychange', function () { if (document.hidden && scanning) stopScan(); });
 
   render();
-  if (items.some(function (i) { return i.status !== 'sent'; }) && validUrl(getUrl())) flush();
+  if ('serviceWorker' in navigator && location.protocol === 'https:') navigator.serviceWorker.register('./service-worker.js').catch(function () {});
+  if (items.some(function (i) { return i.status !== 'sent'; }) && validUrl(getUrl()) && getToken()) flush();
 })();
 </script>
 </body>
